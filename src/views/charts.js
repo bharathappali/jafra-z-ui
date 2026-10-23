@@ -127,7 +127,7 @@ async function drawChart(keepView) {
   }
   const option = buildOption(plan, payload, chartCtx(c, { page: true, trend: tOn }));
   const ch = echarts.init(host, null, { renderer: 'svg' }); CH.chart = ch; const meta = setOpt(ch, option); CH.meta = meta; host.dataset.kind = meta.kind || '';
-  const tr = payload.trend; const sum = payload.summary || (payload.value != null ? `${metricLabel(payload.metric)} ${payload.stat || ''} ${fmtUnit(payload.value, payload.unit)}` : '');
+  const tr = payload.trend; const sum = (typeof payload.summary === 'string' ? payload.summary : '') || (payload.value != null ? `${metricLabel(payload.metric)} ${payload.stat || ''} ${fmtUnit(payload.value, payload.unit)}` : '');
   $('#cpTake').innerHTML = `${esc(sum)}${trendable && tOn ? ` ${trendText(tr, c)}` : ''}`;
   if (meta.kind === 'ts' || meta.kind === 'scatter-calls') {
     ch.dispatchAction({ type: 'takeGlobalCursor', key: 'brush', brushOption: { brushType: 'lineX', brushMode: 'single' } });
