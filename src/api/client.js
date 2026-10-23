@@ -1,38 +1,10 @@
-const DEFAULT_API = 'http://127.0.0.1:8787';
+/**
+ * Analyzer v2 client (contract shapes). The base URL comes from Settings (src/services/config.js); '' = not configured.
+ * Every response body is parsed defensively: a non-JSON body (e.g. an HTML 404 page) becomes ApiError bad_json.
+ */
+import { baseFor } from '../services/config.js';
 
-export function apiBase(search = '') {
-  const q = new URLSearchParams(search.startsWith('?') || search === '' ? search : `?${search}`);
-  if (typeof location !== 'undefined' && !search) {
-    const live = new URLSearchParams(location.search);
-    if (live.get('api')) return live.get('api').replace(/\/$/, '');
-  }
-  if (q.get('api')) return q.get('api').replace(/\/$/, '');
-  try {
-    const saved = localStorage.getItem('jz.api');
-    if (saved) return saved.replace(/\/$/, '');
-  } catch { /* node */ }
-  const env = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_JAFRA_API;
-  return (env || DEFAULT_API).replace(/\/$/, '');
-}
-
-export function harnessBase(search = '') {
-  const q = new URLSearchParams(search.startsWith('?') || search === '' ? search : `?${search}`);
-  if (typeof location !== 'undefined' && !search) {
-    const live = new URLSearchParams(location.search);
-    if (live.get('harness')) return live.get('harness').replace(/\/$/, '');
-  }
-  if (q.get('harness')) return q.get('harness').replace(/\/$/, '');
-  try {
-    const saved = localStorage.getItem('jz.harness');
-    if (saved) return saved.replace(/\/$/, '');
-  } catch { /* node */ }
-  const env = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_JAFRA_HARNESS;
-  return (env || apiBase(search)).replace(/\/$/, '');
-}
-
-export function saveApiBase(url) {
-  localStorage.setItem('jz.api', url.replace(/\/$/, ''));
-}
+export function apiBase() { return baseFor('analyzer'); }
 
 export class ApiError extends Error {
   constructor(body, status) {
@@ -44,7 +16,7 @@ export class ApiError extends Error {
   }
 }
 
-function jvmPath(jvm, rest) {
+export function jvmPath(jvm, rest) {
   const p = `/v2/jvms/${encodeURIComponent(jvm.ns)}/${encodeURIComponent(jvm.pod)}/${encodeURIComponent(jvm.container)}${rest}`;
   const q = new URLSearchParams();
   if (jvm.cluster) q.set('cluster', jvm.cluster);
@@ -53,7 +25,7 @@ function jvmPath(jvm, rest) {
   return s ? `${p}?${s}` : p;
 }
 
-function withQuery(path, extra) {
+export function withQuery(path, extra) {
   const u = new URL(path, 'http://local');
   for (const [k, v] of Object.entries(extra || {})) {
     if (v != null && v !== '') u.searchParams.set(k, String(v));
@@ -62,20 +34,22 @@ function withQuery(path, extra) {
 }
 
 export function createClient(base = apiBase()) {
-  async function get(path) {
-    const res = await fetch(base + path);
+  async function get(path, init) {
+    if (!base) throw new ApiError({ error: 'not_configured', message: 'Analyzer not configured', hint: 'Set the Analyzer URL in Settings.' }, 0);
+    const res = await fetch(base + path, init);
     const text = await res.text();
     let body = {};
-    try { body = text ? JSON.parse(text) : {}; } catch { body = { error: 'bad_json', message: text, hint: '', valid: [] }; }
-    if (!res.ok) throw new ApiError(body, res.status);
+    try { body = text ? JSON.parse(text) : {}; } catch { body = { error: 'bad_json', message: `${res.status}: the analyzer did not return JSON`, hint: 'Check the Analyzer URL in Settings (it must be the v2 API base).', valid: [] }; }
+    if (!res.ok || body?.error === 'bad_json') throw new ApiError(body, res.status);
     return body;
   }
-  const jget = (jvm, rest, q) => get(withQuery(jvmPath(jvm, rest), q));
+  const jget = (jvm, rest, q, init) => get(withQuery(jvmPath(jvm, rest), q), init);
   return {
     base,
     get,
     workloads: () => get('/v2/workloads'),
     metrics: (q) => get(withQuery('/v2/metrics', q)),
+    tools: () => get('/v2/tools'),
     report: (jvm, q) => jget(jvm, '/report', q),
     timeline: (jvm, q) => jget(jvm, '/timeline', q),
     incidents: (jvm, q) => jget(jvm, '/incidents', q),
@@ -87,7 +61,8 @@ export function createClient(base = apiBase()) {
     frames: (jvm, q) => jget(jvm, '/frames', q),
     events: (jvm, q) => jget(jvm, '/events', q),
     trend: (jvm, q) => jget(jvm, '/trend', q),
-    tool: (jvm, name, q) => jget(jvm, `/tools/${encodeURIComponent(name)}`, q),
+    /** J/tools/{tool}?<args> (contract 1.5 harness extras): runs one tool, returns its result or its error body. */
+    tool: (jvm, name, args, init) => jget(jvm, `/tools/${encodeURIComponent(name)}`, args, init),
     jvmInfo: (jvm) => jget(jvm, '/tools/get_jvm_info'),
   };
 }

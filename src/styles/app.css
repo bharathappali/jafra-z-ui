@@ -1,23 +1,88 @@
-/* Additive only. The mockup CSS is copied verbatim in the other stylesheets. */
-#replayBtn { display: none; }
-#analyzerUrl {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--ink);
-  background: var(--glass-soft);
-  border: 1px solid var(--hairline);
-  border-radius: 8px;
-  padding: 4px 8px;
-  width: min(280px, 46vw);
-}
-.nav-pop { position: absolute; z-index: 80; display: flex; flex-direction: column; gap: 4px; padding: 8px; min-width: 240px; }
-.nav-pop[hidden] { display: none; }
-.nav-it { display: flex; gap: 8px; align-items: center; text-align: left; border: 0; background: transparent; border-radius: 12px; padding: 8px 10px; cursor: pointer; color: var(--ink); }
-.nav-it.on, .nav-it:hover { background: var(--hl-grad); }
-.nav-it small { display: block; color: var(--ink-3); font-weight: 400; }
-.nav-btn { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; cursor: pointer; color: var(--ink); font-family: var(--font-head); font-weight: 700; }
-.nav-ic { width: 18px; height: 18px; }
-.ph-card { padding: 28px; text-align: center; }
-.ev-modal { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; background: rgba(20, 21, 43, .35); }
-.ev-modal[hidden] { display: none; }
-.ev-sheet { width: min(720px, calc(100% - 32px)); max-height: min(80vh, 640px); overflow: auto; padding: 16px 18px; border-radius: 18px; }
+/* Additive only. The mockup CSS is copied verbatim in shell.css, dash4.css, picker.css and charts.css;
+   nothing here overrides a mockup rule. These are styles for things the mockup does not have. */
+/* Service state "not configured": hollow grey dot (connected/connecting/down come from shell.css) */
+.dot[data-state="unset"] { background: transparent; box-shadow: inset 0 0 0 1.5px var(--idle); }
+
+/* Settings pane: three service URLs (mockup popover language) */
+.popover.settings-pop { width: min(420px, calc(100vw - 24px)); }
+.svc-form { border-top: 1px solid var(--hairline); padding-top: 8px; margin-top: 2px; }
+.svc-h { display: flex; align-items: baseline; justify-content: space-between; font-size: var(--fs-sm); margin-bottom: 4px; }
+.svc-h b { font-family: var(--font-head); color: var(--ink-2); }
+.svc-h span { font-size: 11px; color: var(--ink-3); }
+.svc-row { padding: 7px 0; }
+.svc-row + .svc-row { border-top: 1px dashed var(--hairline); }
+.svc-top { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); margin-bottom: 4px; }
+.svc-top b { font-family: var(--font-head); }
+.svc-top small { color: var(--ink-3); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.svc-st { font-size: 11px; font-weight: 600; border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.svc-st[data-st="unset"] { color: var(--ink-3); background: var(--glass-soft); border: 1px solid var(--hairline); }
+.svc-st[data-st="checking"] { color: #A06A00; background: rgba(229,154,18,.12); }
+.svc-st[data-st="healthy"] { color: #1E7F45; background: rgba(59,178,115,.14); }
+.svc-st[data-st="unhealthy"] { color: #C1272D; background: rgba(229,72,77,.12); }
+.svc-row input { width: 100%; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink); background: var(--glass-soft); border: 1px solid var(--hairline); border-radius: 8px; padding: 5px 8px; }
+.svc-row input:focus { outline: 2px solid var(--periwinkle); outline-offset: 0; }
+.svc-err { margin-top: 4px; font-size: 11px; color: #C1272D; line-height: 1.35; word-break: break-word; }
+.svc-err small { color: var(--ink-3); }
+.svc-proxy { display: flex; gap: 8px; align-items: flex-start; font-size: var(--fs-sm); padding: 6px 0 2px; cursor: pointer; }
+.svc-proxy[hidden] { display: none; }
+.svc-proxy small { color: var(--ink-3); }
+.svc-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 0 6px; }
+.chip, .status-cluster { cursor: pointer; }
+.na-btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+/* Kusma locked (needs Analyzer, Laya and Jafra Z healthy) */
+.kusma-lock { margin: 12px; padding: 14px 16px; border-radius: 16px; border: 1px solid var(--hairline); background: var(--glass-soft); font-size: var(--fs-sm); color: var(--ink-2); }
+.kusma-lock h4 { font-family: var(--font-head); font-size: var(--fs-md, 14px); margin: 0 0 6px; color: var(--ink); display: flex; align-items: center; gap: 8px; }
+.kusma-lock ul { list-style: none; margin: 6px 0 10px; padding: 0; display: grid; gap: 4px; }
+.kusma-lock li { display: flex; align-items: center; gap: 8px; }
+.kusma-lock li b { font-family: var(--font-head); min-width: 62px; }
+.kusma-lock li span { color: var(--ink-3); }
+.kusma-lock li em { font-style: normal; color: #C1272D; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+body[data-kusma="locked"] .starter, body[data-kusma="locked"] .ap-pop button.q { opacity: .45; pointer-events: none; }
+body[data-kusma="locked"] #composer textarea { cursor: not-allowed; }
+body[data-kusma="locked"] #sendBtn { opacity: .45; pointer-events: none; }
+.wl-btn:disabled { opacity: .4; cursor: not-allowed; }
+.id-empty .linkish, .kusma-lock .linkish { border: 0; background: none; padding: 0; color: var(--periwinkle-strong); cursor: pointer; font: inherit; text-decoration: underline; }
+
+/* Flame graph frame search (new vs the mockup), styled like the mockup's .search pills */
+.fl-search { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; min-width: 170px; max-width: 240px; border-radius: 999px; }
+.fl-search input { border: 0; background: transparent; outline: none; font: inherit; font-size: 12px; color: var(--ink); width: 100%; }
+.fl-search .icon { width: 14px; height: 14px; color: var(--ink-3); }
+.fl-match { font-size: 11.5px; color: var(--periwinkle-strong); font-family: var(--font-mono); min-width: 0; }
+.fl-match:empty { display: none; }
+.fl-compare { font-size: 11.5px; color: var(--ink-3); }
+
+/* API errors ({error,message,hint,valid}) inside a card/chart — never a blank chart */
+.api-err { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; justify-content: center; height: 100%; min-height: 120px; padding: 14px 16px; font-size: var(--fs-sm); color: var(--ink-2); }
+.api-err b { color: var(--ink); }
+.api-err code { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-3); }
+.api-err .hint { color: var(--ink-3); }
+
+/* Trend (Theil–Sen) toggle + time to limit */
+.tr-tog[aria-pressed="true"] { color: var(--periwinkle-strong); }
+.ttl-note { color: var(--ink-3); font-size: 11.5px; }
+.ttl-note b { color: var(--ink); }
+
+/* endpoints-overview table (catalogue view "Calls, avg, max, slow count and %") */
+.ep-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.ep-table th { text-align: left; font-weight: 600; color: var(--ink-3); font-size: 11.5px; padding: 6px 10px; border-bottom: 1px solid var(--hairline); }
+.ep-table td { padding: 7px 10px; border-bottom: 1px solid var(--hairline); color: var(--ink); }
+.ep-table td.num, .ep-table th.num { text-align: right; font-family: var(--font-mono); }
+.ep-table tr[data-epkey] { cursor: pointer; }
+.ep-table tr[data-epkey]:hover td { background: var(--hl-grad); }
+.ep-table td.hot { color: #E5484D; font-weight: 600; }
+
+/* Context dev panel in the chat pane */
+.ctx-dev { margin: 0 12px 8px; border: 1px solid var(--hairline); border-radius: 12px; background: var(--glass-soft); max-height: 38vh; display: flex; flex-direction: column; }
+.ctx-dev[hidden] { display: none; }
+.ctx-dev header { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; font-size: 12px; border-bottom: 1px solid var(--hairline); }
+.ctx-dev header span { color: var(--ink-3); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx-dev header .icon-btn { width: 26px; height: 26px; }
+.ctx-dev pre { margin: 0; padding: 8px 12px; overflow: auto; font-family: var(--font-mono); font-size: 11px; line-height: 1.45; color: var(--ink-2); white-space: pre; }
+
+/* Transparency: the full context / args / request stay folded inside the step <details> (summary stays short). */
+.step .audit{font-style:normal;margin-top:8px}
+.step .audit-k{font-family:var(--font-mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3,var(--ink));opacity:.75;margin:8px 0 3px}
+.step.think .audit pre{margin:0;font-family:var(--font-mono);font-size:11px;white-space:pre-wrap;word-break:break-all;background:color-mix(in srgb,var(--glass-strong) 70%,transparent);border-radius:var(--r-sm);padding:8px;color:var(--ink);max-height:260px;overflow:auto}
+.step.tool .audit pre{margin-bottom:2px;word-break:break-all;max-height:220px;overflow:auto}
+.step.tool > .body-in > pre{max-height:320px;overflow:auto}

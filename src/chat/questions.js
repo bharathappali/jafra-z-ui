@@ -203,16 +203,28 @@ export function allQuestions(incident) {
   return { dev: both.dev.slice(0, 3), expert: both.expert.slice(0, 3) };
 }
 
+/** Mockup chat-empty starters (jafra-z-dashboard.html renderMsgs). */
 export const STARTERS = [
   'Is this JVM healthy right now?',
-  'What should I look at first?',
-  'Explain the open incidents in plain language.',
+  'What are the top CPU consumers?',
+  'Is the heap growing?',
 ];
 
+const fmt = (v) => (v == null ? '–' : Math.abs(v) >= 100 ? Math.round(v).toLocaleString('en-US') : Math.abs(v) >= 10 ? (+v.toFixed(1)).toString() : (+v.toFixed(2)).toString());
+const cap = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1);
+const clk = (ms) => new Date(ms).toISOString().slice(11, 19);
+
+/**
+ * Question templates from the mockup (QT), filled with the selection's real values.
+ * Times are epoch ms (the mockup used seconds since the recording start).
+ */
 export const QT = {
-  point(p) { return [`Why is ${p.name} ${p.value} here?`, `Is ${p.name} unusual compared with the rest of the window?`, `What else moved when ${p.name} did?`]; },
-  range(p) { return [`What changed between ${p.from} and ${p.to}?`, `Which metric moved the most in this range?`, `Did an incident overlap ${p.from}–${p.to}?`]; },
-  bar(p) { return [`Why is ${p.name} the top ${p.what}?`, `What calls ${p.name}?`, `Is ${p.name} new in this window?`]; },
-  cell(p) { return [`Why is ${p.name} hot in this slice?`, `Is this slice worse than the others?`, `What was ${p.name} doing then?`]; },
-  frame(p) { return [`What is ${p.name} doing on CPU?`, `Who calls ${p.name}?`, `Is ${p.name} expected for this workload?`]; },
+  point: (s) => [`Why was ${s.q} ${fmt(s.v)}${s.u} at ${clk(s.t)}?`, `What else changed in this JVM around ${clk(s.t)}?`,
+    s.med != null ? `${cap(s.q)} was ${fmt(s.v)}${s.u} at ${clk(s.t)} vs a median of ${fmt(s.med)}${s.u}. Is that a problem?` : null, `Which code or threads drove ${s.q} at ${clk(s.t)}?`].filter(Boolean),
+  range: (s) => [`Why did ${s.q} ${s.l > s.f ? 'grow' : s.l < s.f ? 'drop' : 'stay'} ${s.l !== s.f ? `from ${fmt(s.f)}${s.u} to ${fmt(s.l)}${s.u}` : `at ${fmt(s.f)}${s.u}`} between ${clk(s.a)} and ${clk(s.b)}?`,
+    `What caused the peak of ${fmt(s.mx)}${s.u} ${s.q} at ${clk(s.tm)}?`, s.inc ? `How do the ${s.inc} overlapping incident${s.inc > 1 ? 's' : ''} explain ${clk(s.a)}–${clk(s.b)}?` : `Nothing was flagged between ${clk(s.a)} and ${clk(s.b)}. Is anything unusual here?`,
+    `What would bring ${s.q} down in this window?`],
+  bar: (s) => [`Why is ${s.name} ${s.rank === 1 ? 'the top' : `#${s.rank}`} ${s.what} (${s.val})?`, `Where in my code does ${s.name} come from?`, `Is ${s.val} for ${s.name} expected for this workload?`],
+  cell: (s) => [`Why did ${s.name} reach ${fmt(s.v)}${s.u} around ${s.when}?`, `What was ${s.name} doing at ${s.when}?`, `Is ${s.name} on the critical path during the incidents?`],
+  frame: (s) => [`Why does ${s.name} take ${fmt(s.pct)}% of ${s.unit}?`, `Which callers lead to ${s.name}?`, s.cat === 'app' ? `How can I make ${s.name} cheaper?` : `Why is ${s.cat === 'jdk' ? 'this JDK method' : 'this JVM code'} (${s.name}) so hot in my workload?`, `Is ${s.name} hotter during the incidents than in the rest of the recording?`],
 };

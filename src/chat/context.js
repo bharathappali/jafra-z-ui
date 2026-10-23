@@ -9,10 +9,16 @@ export function buildContext({ jvm, range, chart = null, selection = null, summa
       start: jvm.start,
       jdk: jvm.jdk,
     } : null,
-    range: range ? { from: range.from, to: range.to } : null,
+    // Full RFC 3339 from/to (never a display label such as "15m"); `last` only when it is the API value the window came from.
+    range: range && range.from != null && range.to != null ? { from: iso(range.from), to: iso(range.to), ...(range.last ? { last: range.last } : {}) } : null,
     chart: chart || null,
     selection: selection || null,
     summary: summary ?? null,
     open_incidents: openIncidents || [],
   };
+}
+
+function iso(v) {
+  const n = typeof v === 'number' ? v : /^\d{10,}$/.test(String(v)) ? +v : Date.parse(String(v));
+  return Number.isFinite(n) ? new Date(n).toISOString() : String(v);
 }
