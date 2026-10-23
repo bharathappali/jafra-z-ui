@@ -35,14 +35,34 @@ export function userTurn(context, message) {
   return `<context>\n${compactJson(context)}\n</context>\n\n${message}`;
 }
 
-/** Laya's "selection" field: a short line built from the context block's selection (or "none"). */
+/**
+ * Laya's "selection" field, in the only four forms Laya was trained on (laya/build.py, 4,689 rows):
+ *   none | chart=<id> range=HH:MM:SS-HH:MM:SS | incident=<type>-<epoch s> | range=HH:MM:SS-HH:MM:SS   (UTC)
+ * Point, frame, bar and whole-chart clicks map to chart=<id> with the chart's visible window (closest trained form).
+ * Only Laya's input is reshaped; Jafra Z still gets the full selection in the <context> block.
+ */
+const hms = (v) => { const n = typeof v === 'number' ? v : Date.parse(String(v)); return Number.isFinite(n) ? new Date(n).toISOString().slice(11, 19) : null; };
+const span = (from, to) => { const a = hms(from), b = hms(to); return a && b ? `${a}-${b}` : null; };
 export function selectionText(ctx) {
-  const s = ctx?.selection;
-  if (!s) return ctx?.chart ? `chart ${ctx.chart.id}` : 'none';
-  const parts = [s.kind];
-  if (ctx.chart?.id) parts.push(`on ${ctx.chart.id}`);
-  for (const k of ['metric', 'by', 'key', 'value', 'name', 'id', 'from', 'to']) if (s[k] != null && s[k] !== '') parts.push(`${k}=${typeof s[k] === 'object' ? JSON.stringify(s[k]) : s[k]}`);
-  return parts.join(' ');
+  const s = ctx?.selection, ch = ctx?.chart?.id && ctx.chart.id !== 'timeline' ? ctx.chart.id : null;
+  const win = span(ctx?.range?.from, ctx?.range?.to);
+  if (s?.kind === 'incident') {
+    if (/^[a-z_]+-\d+$/.test(String(s.id || ''))) return `incident=${s.id}`;
+    const t0 = Date.parse(String(s.t0 || ''));
+    if (s.type && Number.isFinite(t0)) return `incident=${s.type}-${Math.floor(t0 / 1000)}`;
+  }
+  const r = s && s.from != null && s.to != null ? span(s.from, s.to) : null;
+  if (ch) { const w = r || win; return w ? `chart=${ch} range=${w}` : 'none'; }
+  if (s?.kind === 'range' && r) return `range=${r}`;
+  return 'none';
+}
+
+/** Cut a field to the longest Laya saw in training (previous 50 words, last_answer 29 words). */
+export function clipWords(text, max) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!t || t === 'none') return 'none';
+  const w = t.split(' ');
+  return w.length <= max ? t : w.slice(0, max).join(' ');
 }
 
 /** /v2/tools body → OpenAI tools. Accepts {tools:[{name,description,parameters}]} or an already-OpenAI list. */
@@ -147,7 +167,7 @@ export async function runKusma(o) {
 
   // 1. Laya
   const lr = await f(`${o.urls.laya}/route`, { method: 'POST', headers: { 'content-type': 'application/json' }, signal: o.signal,
-    body: JSON.stringify({ message: o.message, selection: selectionText(o.context), previous: o.previous || 'none', last_answer: o.lastAnswer || 'none' }) });
+    body: JSON.stringify({ message: o.message, selection: selectionText(o.context), previous: clipWords(o.previous, 50), last_answer: clipWords(o.lastAnswer, 29) }) });
   const route = await readJson(lr, 'Laya /route');
   if (!lr.ok) throw new Error(`Laya /route: HTTP ${lr.status}${route.message ? ` ${route.message}` : ''}`);
   emit('route', route);
