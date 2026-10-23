@@ -47,14 +47,25 @@ export function selectionText(ctx) {
   const s = ctx?.selection, ch = ctx?.chart?.id && ctx.chart.id !== 'timeline' ? ctx.chart.id : null;
   const win = span(ctx?.range?.from, ctx?.range?.to);
   if (s?.kind === 'incident') {
-    if (/^[a-z_]+-\d+$/.test(String(s.id || ''))) return `incident=${s.id}`;
+    // Trained form is <type>-<epoch seconds>: build it from type + t0; take the id as-is only if it already has that form.
     const t0 = Date.parse(String(s.t0 || ''));
     if (s.type && Number.isFinite(t0)) return `incident=${s.type}-${Math.floor(t0 / 1000)}`;
+    if (/^[a-z_]+-\d{10}$/.test(String(s.id || ''))) return `incident=${s.id}`;
   }
   const r = s && s.from != null && s.to != null ? span(s.from, s.to) : null;
   if (ch) { const w = r || win; return w ? `chart=${ch} range=${w}` : 'none'; }
   if (s?.kind === 'range' && r) return `range=${r}`;
   return 'none';
+}
+
+/**
+ * Laya's four fields. A gated turn (its last answer is a canned ROUTE_REPLY) is not a usable previous turn: Laya never saw
+ * canned replies in training, and "restart the pod" as previous turns the next "it's slow" into unsafe. Send none/none then.
+ */
+const CANNED = new Set(Object.values(ROUTE_REPLY).map((t) => t.replace(/\s+/g, ' ').trim()));
+export function layaInput(o) {
+  const gated = CANNED.has(String(o.lastAnswer || '').replace(/\s+/g, ' ').trim());
+  return { message: o.message, selection: selectionText(o.context), previous: gated ? 'none' : clipWords(o.previous, 50), last_answer: gated ? 'none' : clipWords(o.lastAnswer, 29) };
 }
 
 /** Cut a field to the longest Laya saw in training (previous 50 words, last_answer 29 words). */
@@ -167,7 +178,7 @@ export async function runKusma(o) {
 
   // 1. Laya
   const lr = await f(`${o.urls.laya}/route`, { method: 'POST', headers: { 'content-type': 'application/json' }, signal: o.signal,
-    body: JSON.stringify({ message: o.message, selection: selectionText(o.context), previous: clipWords(o.previous, 50), last_answer: clipWords(o.lastAnswer, 29) }) });
+    body: JSON.stringify(layaInput(o)) });
   const route = await readJson(lr, 'Laya /route');
   if (!lr.ok) throw new Error(`Laya /route: HTTP ${lr.status}${route.message ? ` ${route.message}` : ''}`);
   emit('route', route);
