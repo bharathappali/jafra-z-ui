@@ -1,6 +1,10 @@
-/** Section 1.10 context block. Starters and free text pass chart and selection as null. */
+/** Section 1.10 context block. Starters and free text pass chart and selection as null.
+ * Key order is locked for training/harness byte-stability:
+ *   jvm, range, chart, selection, summary, open_incidents, persona
+ * Persona is required on every turn the harness sends (developer|expert).
+ */
 
-export function buildContext({ jvm, range, chart = null, selection = null, summary = null, openIncidents = [] }) {
+export function buildContext({ jvm, range, chart = null, selection = null, summary = null, openIncidents = [], persona = 'developer' }) {
   return {
     jvm: jvm ? {
       ns: jvm.ns,
@@ -15,6 +19,7 @@ export function buildContext({ jvm, range, chart = null, selection = null, summa
     selection: selection || null,
     summary: summary ?? null,
     open_incidents: openIncidents || [],
+    persona: persona === 'expert' ? 'expert' : 'developer',
   };
 }
 

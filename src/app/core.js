@@ -26,6 +26,7 @@ export const state = {
   timeline: null,
   incidents: [],
   chartList: [],
+  starters: null, // {developer:[], expert:[]} from analyzer U13; null = use local fallback
   range: { last: qs.get('last') || '15m' },
   live: true,
   chats: {},

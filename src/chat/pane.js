@@ -1,7 +1,7 @@
 /**
  * ChatPane: a port of the mockup chat (jafra-z-dashboard.html 2211–2400: cards, msgHTML, renderMsgs, composer, queue,
  * renderChatState, openChat, resizer) driven by the real harness (src/kusma/harness.js):
- * Laya route → Jafra Z (reasoning ON) with the 8 analyzer tools → J/tools/{tool}. Streaming order as in the mockup:
+ * Laya route → KUSMA on Jafra Z (reasoning ON) with the 8 analyzer tools → J/tools/{tool}. Streaming order as in the mockup:
  * run line "KUSMA is investigating…" → think step (open, spinner, "Thinking…" → "Thought for Ns") → tool steps
  * (spinner → ✓ + result) → reply → run line Done / Stopped.
  */
@@ -9,7 +9,7 @@ import { $, $$, app, chev, ctxJvm, esc, icon, jvmKey, jvmRef, mid, state } from 
 import { baseFor, getStatus, kusmaBlockers, SERVICES } from '../services/config.js';
 import { openSettings } from '../app/shell.js';
 import { buildContext } from './context.js';
-import { STARTERS } from './questions.js';
+import { startersFor } from './questions.js';
 import { runKusma } from '../kusma/harness.js';
 import { GROUP_COLOR, GROUP_LABEL, fmtUnit, metricLabel, tms } from '../charts/registry.js';
 
@@ -55,7 +55,7 @@ export function contextFor(card) {
   }
   const chartCard = card && card.type !== 'reply' ? card : null;
   return buildContext({ jvm: ctxJvm(state.selected), range: { from: w.from, to: w.to, last: w.last || (state.range?.last && !state.range?.from ? state.range.last : undefined) }, chart: chartCard ? chartCard.chart : null, selection: chartCard ? chartCard.selection : null,
-    summary: summaryLine(), openIncidents: (state.incidents || []).filter((x) => x.status === 'open').map((x) => ({ id: x.id, type: x.type, group: x.group, level: x.level, t0: x.t0, headline: x.headline })) });
+    summary: summaryLine(), openIncidents: (state.incidents || []).filter((x) => x.status === 'open').map((x) => ({ id: x.id, type: x.type, group: x.group, level: x.level, t0: x.t0, headline: x.headline })), persona: state.persona });
 }
 function showCtx(ctx, note) {
   const show = state.dev || kusmaBlockers().length > 0;
@@ -84,7 +84,8 @@ function renderMsgs() {
   const box = $('#msgs'); const j = state.selected; if (!j) { box.innerHTML = ''; return; }
   const ch = getChat();
   if (!ch.msgs.length) {
-    box.innerHTML = `<div class="chat-empty">${icon('sparkle', 'width:28px;height:28px')}<h4>New chat for ${esc(j.pod)}</h4><div>This chat only sees this JVM. Try:</div>${STARTERS.map((s) => `<button type="button" class="starter"${kusmaBlockers().length ? ' disabled aria-disabled="true"' : ''}>${esc(s)}</button>`).join('')}</div>`;
+    const starters = startersFor(state.persona, state.starters);
+    box.innerHTML = `<div class="chat-empty">${icon('sparkle', 'width:28px;height:28px')}<h4>New chat for ${esc(j.pod)}</h4><div>This chat only sees this JVM. Try:</div>${starters.map((s) => `<button type="button" class="starter"${kusmaBlockers().length ? ' disabled aria-disabled="true"' : ''}>${esc(s)}</button>`).join('')}</div>`;
     return;
   }
   box.innerHTML = ch.msgs.map((m, i) => msgHTML(m, i)).join(''); box.scrollTop = box.scrollHeight;
@@ -168,7 +169,7 @@ async function run(k, msg) {
 }
 function renderMsgsIf(k) { if (key() === k) renderMsgs(); }
 
-/* ---------------- state: KUSMA lock (needs Laya and Jafra Z; Analyzer for tools) ---------------- */
+/* ---------------- state: KUSMA lock (needs Analyzer + Laya + Jafra Z) ---------------- */
 export function renderChatState() {
   const b = $('#chatBanner'); const blockers = kusmaBlockers(); const locked = blockers.length > 0;
   const needLJ = blockers.some((x) => x.id !== 'analyzer');
@@ -177,13 +178,13 @@ export function renderChatState() {
   if (locked) {
     const all = SERVICES.filter((s) => s.id !== 'analyzer' || blockers.some((x) => x.id === 'analyzer'));
     const word = (st) => (st === 'unset' ? 'not configured' : st === 'unhealthy' ? 'unreachable' : st === 'checking' ? 'checking…' : 'healthy');
-    b.innerHTML = `<div class="chat-banner kusma-lock" role="status">${icon('alert', 'color:var(--err)')}<div><h4>${needLJ ? 'Kusma needs Laya and Jafra Z' : 'Kusma needs the Analyzer'}</h4>
+    b.innerHTML = `<div class="chat-banner kusma-lock" role="status">${icon('alert', 'color:var(--err)')}<div><h4>${needLJ ? 'KUSMA needs Analyzer, Laya and Jafra Z' : 'KUSMA needs the Analyzer'}</h4>
       <ul>${all.map((s) => { const st = getStatus(s.id); return `<li><i class="dot" data-state="${{ unset: 'unset', checking: 'connecting', healthy: 'connected', unhealthy: 'down' }[st.state]}"></i><b class="brand">${s.label}</b> <span>${word(st.state)}</span>${st.state === 'unhealthy' && st.error ? ` <em>${esc(st.error)}</em>` : ''}</li>`; }).join('')}</ul>
       <p class="muted">Charts and incidents still work with the Analyzer alone.</p><button type="button" class="btn sm" data-open-settings>Open settings</button></div></div>`;
   } else b.innerHTML = '';
   $('#chat').classList.toggle('unavailable', locked);
   $('#input').disabled = locked; $('#sendBtn').disabled = locked;
-  $('#input').placeholder = locked ? (needLJ ? 'Configure Laya and Jafra Z in Settings to ask Kusma' : 'Configure the Analyzer in Settings to ask Kusma') : running ? 'KUSMA is working… new messages go to the queue' : 'Ask KUSMA about this workload…';
+  $('#input').placeholder = locked ? (needLJ ? 'Configure Analyzer, Laya and Jafra Z in Settings to ask KUSMA' : 'Configure the Analyzer in Settings to ask Kusma') : running ? 'KUSMA is working… new messages go to the queue' : 'Ask KUSMA about this workload…';
   $('#stopBtn').hidden = !running;
   $('#composerHint').textContent = locked ? 'KUSMA is locked' : running ? 'Running · Enter adds to queue' : 'Enter to send · Shift+Enter new line';
   $$('#msgs .starter').forEach((s) => { s.disabled = locked; });
@@ -224,7 +225,7 @@ export function wireChat() {
   $('#composer').onsubmit = (e) => { e.preventDefault(); submit(); };
   $('#stopBtn').onclick = () => { const ch = getChat(); ch.queue = []; renderQueue(); ch.abort?.abort(); };
   $('#queueList').onclick = (e) => { const b = e.target.closest('button'); if (b) { getChat().queue.splice(+b.dataset.i, 1); renderQueue(); } };
-  const setP = (p) => { state.persona = p; localStorage.setItem('jz.persona', p); document.body.dataset.persona = p; $$('#persona [data-p]').forEach((x) => x.setAttribute('aria-checked', x.dataset.p === p)); };
+  const setP = (p) => { state.persona = p; localStorage.setItem('jz.persona', p); document.body.dataset.persona = p; $$('#persona [data-p]').forEach((x) => x.setAttribute('aria-checked', x.dataset.p === p)); app.onPersonaChange?.(); renderMsgs(); };
   setP(state.persona);
   $('#persona').onclick = (e) => { const b = e.target.closest('[data-p]'); if (b) setP(b.dataset.p); };
   $('#askBtn').onclick = () => openChat(!state.chatOpen);

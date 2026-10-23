@@ -1,6 +1,6 @@
-# Jafra Z
+# Jafra Z UI
 
-Vanilla-JS dashboard for the Jafra analyzer. Numbers come from the analyzer v2 API. The dummy analyzer used in development lives in `do_not_commit/dummy-api/` (gitignored).
+Vanilla-JS dashboard for the Jafra analyzer. The chat assistant is **KUSMA** (Knowledge-driven Unified Systems Monitoring Assistant); it runs on the **Jafra Z** model server. Numbers come from the analyzer v2 API. The dummy analyzer used in development lives in `do_not_commit/dummy-api/` (gitignored).
 
 ## Run
 
@@ -18,7 +18,7 @@ Open http://127.0.0.1:5173/ and set the three service URLs in **Settings** (gear
 | Laya | `http://localhost:8000` | `GET /healthz` (+ `POST /route`) | routing each KUSMA question |
 | Jafra Z | `http://localhost:8081` | `GET /health` (+ `POST /v1/chat/completions`) | the KUSMA model (streaming, reasoning on, tool calls) |
 
-URLs are saved in `localStorage` (`jz.url.analyzer|laya|jafraz`). `VITE_ANALYZER_URL`, `VITE_LAYA_URL`, `VITE_JAFRAZ_URL` only prefill an empty setting; `?api=` overrides the analyzer for one page load. Health is polled every 15 s; each service is NOT CONFIGURED (grey), UNHEALTHY (red, with the error and last check time) or HEALTHY (green). KUSMA is locked until Laya and Jafra Z are healthy.
+URLs are saved in `localStorage` (`jz.url.analyzer|laya|jafraz`). `VITE_ANALYZER_URL`, `VITE_LAYA_URL`, `VITE_JAFRAZ_URL` only prefill an empty setting; `?api=` overrides the analyzer for one page load. Health is polled every 15 s; each service is NOT CONFIGURED (grey), UNHEALTHY (red, with the error and last check time) or HEALTHY (green). KUSMA is locked until the Analyzer, Laya and Jafra Z are all connected and healthy.
 
 ### CORS
 

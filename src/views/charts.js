@@ -6,7 +6,7 @@
 import { $, $$, api, app, esc, icon, jvmRef, qs, rangeQ, state } from '../app/core.js';
 import { ENDPOINT_TABLE, FLAME_GROUP, GROUP_ORDER, TREND_VIEWS, navEntries, planFor, visibleForGc } from '../charts/registry.js';
 import { FRAME_UNIT, GROUP_KIND, flName, flTakeaway, renderFlame, toTree } from '../flame/flame.js';
-import { QT, questionsFor } from '../chat/questions.js';
+import { QT, pickQuestions, rangeQuestions } from '../chat/questions.js';
 import { openFlameModal } from './evidence.js';
 import {
   GROUP_COLOR, LV, buildOption, chartCtx, chartRef, clock, echarts, errHTML, fetchPlan, fmt, fmtUnit, groupName, hidePops, incFelt, incTitle, isOpen, iso,
@@ -189,7 +189,11 @@ function pointPop(t, ev, c) {
 async function rangePop(a, b) {
   const c = cur(); if (!c || !(b - a >= 1000) || !CH.chart) return;
   const vals = seriesStats(CH.body, a, b); const st = await rangeStats(a, b); const inc = overlapping(a, b); const s = vals[0];
-  const Q = s ? QT.range({ q: metricLabel(s.metric).toLowerCase(), u: '', f: s.first, l: s.last, mx: s.max, tm: tms(s.max_at), a, b, inc: inc.length }).map((x) => x.replaceAll(fmt(s.first), fmtUnit(s.first, s.unit)).replaceAll(fmt(s.last), fmtUnit(s.last, s.unit)).replaceAll(fmt(s.max), fmtUnit(s.max, s.unit))) : [`What happened between ${clock(a)} and ${clock(b)}?`];
+  const stats = s ? { q: metricLabel(s.metric).toLowerCase(), u: '', f: s.first, l: s.last, mx: s.max, tm: tms(s.max_at), a, b, inc: inc.length } : null;
+  let Q = rangeQuestions(CH.body, state.persona, a, b, stats);
+  if (!CH.body?.range_questions?.[state.persona === 'expert' ? 'expert' : 'developer'] && stats) {
+    Q = QT.range(stats).map((x) => x.replaceAll(fmt(s.first), fmtUnit(s.first, s.unit)).replaceAll(fmt(s.last), fmtUnit(s.last, s.unit)).replaceAll(fmt(s.max), fmtUnit(s.max, s.unit)));
+  }
   const px = CH.chart.convertToPixel({ xAxisIndex: 0 }, (a + b) / 2); const cr = $('#cpChart').getBoundingClientRect();
   showPop({ ic: 'clock', head: `${clock(a)}–${clock(b)} · ${Math.round((b - a) / 1000)} s`, sub: s ? `${esc(metricLabel(s.metric))} ${esc(fmtUnit(s.first, s.unit))} → <b>${esc(fmtUnit(s.last, s.unit))}</b> · peak ${esc(fmtUnit(s.max, s.unit))} at ${clock(s.max_at)}` : 'Compared with this window\u2019s normal (J/report).',
     extra: rstatsHTML(st, 3) + rincHTML(inc), qs: Q, x: cr.left + px, y: cr.top + cr.height * 0.55, foot: 'Attaches this range to KUSMA as context',
@@ -222,11 +226,11 @@ function framePop(q, e, fl, unit, c) {
 }
 function incidentPop(id, ev) {
   const x = state.incidents.find((z) => z.id === id); if (!x) return; const card = incidentCardCtx(x); card.chart = chartRef(cur(), vOf(cur()));
-  showPop({ ic: 'alert', col: LV[x.level], head: esc(incTitle(x)), sub: `${clock(x.t0)}–${isOpen(x) || !x.t1 ? 'now' : clock(x.t1)} · ${esc(incFelt(x))}`, qs: questionsFor(x, state.persona), x: ev?.clientX ?? 0, y: ev?.clientY ?? 0, card,
+  showPop({ ic: 'alert', col: LV[x.level], head: esc(incTitle(x)), sub: `${clock(x.t0)}–${isOpen(x) || !x.t1 ? 'now' : clock(x.t1)} · ${esc(incFelt(x))}`, qs: pickQuestions(x, state.persona, 'chart-marker'), x: ev?.clientX ?? 0, y: ev?.clientY ?? 0, card,
     foot: `Attaches this incident to KUSMA · <button type="button" class="linkish" data-rinc="${esc(x.id)}">Open incident card</button>` });
 }
 function askWhole() {
   const c = cur(); const t = c.title.toLowerCase(); const r = $('#cpAsk').getBoundingClientRect(); const tk = ($('#cpTake')?.textContent || '').trim(); const rp = rangeParams(c); const W = win();
-  showPop({ ic: 'sparkle', head: esc(c.title), sub: esc(tk).slice(0, 220), qs: [`Explain the ${t} chart for this JVM.`, `What stands out in ${t}?`, `Is anything in ${t} linked to the incidents?`, 'What should I change based on this chart?'],
+  showPop({ ic: 'sparkle', head: esc(c.title), sub: esc(tk).slice(0, 220), qs: (CH.body?.questions && pickQuestions(CH.body, state.persona, 'chart')) || [`Explain the ${t} chart for this JVM.`, `What stands out in ${t}?`, `Is anything in ${t} linked to the incidents?`, 'What should I change based on this chart?'],
     x: r.left + r.width / 2, y: r.bottom, card: wholeCard(c, { kind: 'chart', from: rp.from || W.from, to: rp.to || W.to }, 'whole chart', tk.slice(0, 200)) });
 }

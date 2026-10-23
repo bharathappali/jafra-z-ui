@@ -64,5 +64,7 @@ export function createClient(base = apiBase()) {
     /** J/tools/{tool}?<args> (contract 1.5 harness extras): runs one tool, returns its result or its error body. */
     tool: (jvm, name, args, init) => jget(jvm, `/tools/${encodeURIComponent(name)}`, args, init),
     jvmInfo: (jvm) => jget(jvm, '/tools/get_jvm_info'),
+    /** U13: workload starters {developer:[], expert:[]}. */
+    starters: (jvm, q) => jget(jvm, '/questions/starters', q),
   };
 }

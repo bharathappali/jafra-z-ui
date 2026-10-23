@@ -268,7 +268,7 @@ function writeJvmUrl(j) {
 }
 export function selectJvm(j) {
   app.saveDraft?.();
-  state.selected = j; state.report = null; state.timeline = null; state.incidents = []; state.chartList = []; state.info = null; state.loadError = null;
+  state.selected = j; state.report = null; state.timeline = null; state.incidents = []; state.chartList = []; state.starters = null; state.info = null; state.loadError = null;
   writeJvmUrl(j);
   renderAll();
   loadJvm();
@@ -278,10 +278,12 @@ export async function loadJvm() {
   const j = state.selected; if (!j) return; const seq = ++jvmSeq; const ref = jvmRef(j); const c = api.client;
   state.loadError = null;
   try {
-    const [report, timeline, incs, charts, info] = await Promise.all([
-      c.report(ref, rangeQ()), c.timeline(ref, rangeQ()), c.incidents(ref, rangeQ()), c.charts(ref), c.jvmInfo(ref).catch(() => null)]);
+    const [report, timeline, incs, charts, info, starters] = await Promise.all([
+      c.report(ref, rangeQ()), c.timeline(ref, rangeQ()), c.incidents(ref, rangeQ()), c.charts(ref), c.jvmInfo(ref).catch(() => null),
+      c.starters(ref).catch(() => null)]);
     if (seq !== jvmSeq) return;
-    Object.assign(state, { report, timeline, incidents: incs.incidents || [], chartList: charts.charts || [], info });
+    Object.assign(state, { report, timeline, incidents: incs.incidents || [], chartList: charts.charts || [], info,
+      starters: starters && (starters.developer || starters.expert) ? starters : null });
   } catch (e) { if (seq !== jvmSeq) return; state.loadError = e; }
   renderIdentity(); renderMain(); app.renderChat?.();
   openJvmStream();

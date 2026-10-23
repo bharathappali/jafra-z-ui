@@ -205,3 +205,12 @@ html.ev-open{overflow:hidden}
 .ev-frames .fr-tag{flex:none;font-size:10px;padding:0 6px;border-radius:999px;background:#FFE7A3;color:#6B5A1E}
 [data-theme="dark"] .ev-frames .fr-tag{background:#B9A45A;color:#1D1E36}
 .ev-h .fl-legend{margin-top:5px}
+
+/* U13: suggested questions on the incident card */
+.ic-qs{margin:10px 14px 0;padding:10px 12px;border-radius:var(--r-md,12px);background:var(--glass-soft);border:1px solid var(--hairline)}
+.ic-qs h5{margin:0 0 8px;font-size:var(--fs-xs);letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3)}
+.ic-qs-list{display:flex;flex-direction:column;gap:6px}
+.ic-qs-list button.q{display:flex;align-items:flex-start;gap:8px;text-align:left;border:1px solid var(--hairline);background:var(--glass);border-radius:var(--r-pill,999px);padding:7px 12px;cursor:pointer;font-size:var(--fs-sm);color:var(--ink);line-height:1.35}
+.ic-qs-list button.q:hover{background:var(--hl-grad);border-color:var(--hl-border)}
+.ic-qs-list button.q svg{flex:none;margin-top:2px;color:var(--pink-strong)}
+body[data-kusma="locked"] .ic-qs-list button.q{opacity:.45;pointer-events:none}

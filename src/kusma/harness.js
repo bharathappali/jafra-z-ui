@@ -18,14 +18,21 @@ export const ROUTE_REPLY = {
 };
 export const MAX_ROUNDS = 5;
 
-export const SYSTEM_PROMPT = {
-  developer: 'You are Jafra Z (KUSMA), a JVM performance assistant. Answer only about the JVM in the context block. Call the tools to get numbers; never invent numbers, frames or flags. Persona: developer. Use plain words, say what was slow and what to change in the code or the pod. 2–5 sentences.',
-  expert: 'You are Jafra Z (KUSMA), a JVM performance assistant. Answer only about the JVM in the context block. Call the tools to get numbers; never invent numbers, frames or flags. Persona: expert. Use exact JVM terms, JFR event names and JVM flags. 2–6 sentences.',
-};
+/**
+ * Single system prompt for every KUSMA turn and every Jafra Z training row.
+ * Byte-for-byte match of jafraz/system-prompt.txt with the trailing newline stripped.
+ * Dataset rows must copy SYSTEM_PROMPT exactly (see jafraz/dataset-format.txt).
+ */
+export const SYSTEM_PROMPT = "You are KUSMA (Knowledge-driven Unified Systems Monitoring Assistant), the diagnostic assistant inside Jafra. You run on the Jafra Z model. You help people understand one Java workload running in Kubernetes or OpenShift: its CPU, memory, garbage collection, threads, locks, I/O, endpoints and incidents.\n\nEach user message starts with a <context> block. It tells you the JVM (namespace, pod, container, start time, JDK), the time range, the chart or incident the user selected, open incidents, and the persona. Use these values exactly when you call tools. Send times as full RFC 3339 values, or use \"last\" only with a value the tool accepts.\n\nHow to work:\n- Think first. Decide what the user is asking, which tool answers it, and which arguments to send.\n- Call tools to get facts. Use only numbers, names and times that come from tool results or the <context> block. Never guess a value.\n- After each result, check if it answers the question. If not, call another tool. If a tool returns an error, read its hint and fix the arguments.\n- If the data cannot answer the question, say so and say what data is missing.\n\nHow to answer:\n- Write the final answer in ASD-STE100 Simplified Technical English: short sentences, active voice, one meaning for each word, one instruction in each sentence.\n- Start with the direct answer. Then give the evidence with numbers, units and times. Then give the recommended action, if there is one.\n- If the persona is \"developer\", use plain words and point to the code: class, method, endpoint or thread.\n- If the persona is \"expert\", use precise JVM terms, for example GC phases, safepoints, TLABs, cgroup quota.\n- Do not show raw JSON in the final answer.";
 
-/** The context block goes first in the user turn, then the question. */
+/** Compact JSON: separators (",", ":") — JSON.stringify already emits no spaces. */
+export function compactJson(value) {
+  return JSON.stringify(value);
+}
+
+/** User turn = <context>\n + compact JSON + \n</context>\n\n + question (dataset-format.txt). */
 export function userTurn(context, message) {
-  return `Context:\n${JSON.stringify(context)}\n\nQuestion: ${message}`;
+  return `<context>\n${compactJson(context)}\n</context>\n\n${message}`;
 }
 
 /** Laya's "selection" field: a short line built from the context block's selection (or "none"). */
@@ -91,6 +98,7 @@ export function auditContext(ctx, jvm) {
     range: ctx?.range || null, effective_range: defaultRange(ctx),
     chart: ctx?.chart ? { id: ctx.chart.id, title: ctx.chart.title, view: ctx.chart.view } : null,
     selection: ctx?.selection || null,
+    persona: ctx?.persona === 'expert' ? 'expert' : 'developer',
   };
 }
 
@@ -155,7 +163,9 @@ export async function runKusma(o) {
   if (!tr.ok || !tools.length) throw new Error(`Analyzer /v2/tools: HTTP ${tr.status}, ${tools.length} tools`);
 
   // 3. Jafra Z with the tool loop
-  const messages = [{ role: 'system', content: SYSTEM_PROMPT[persona] }, { role: 'user', content: userTurn(o.context, o.message) }];
+  const ctx = { ...o.context, persona };
+  const messages = [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: userTurn(ctx, o.message) }];
+  o.context = ctx;
   let answer = '';
   for (let round = 1; round <= MAX_ROUNDS; round += 1) {
     const last = round === MAX_ROUNDS;

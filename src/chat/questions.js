@@ -228,3 +228,56 @@ export const QT = {
   cell: (s) => [`Why did ${s.name} reach ${fmt(s.v)}${s.u} around ${s.when}?`, `What was ${s.name} doing at ${s.when}?`, `Is ${s.name} on the critical path during the incidents?`],
   frame: (s) => [`Why does ${s.name} take ${fmt(s.pct)}% of ${s.unit}?`, `Which callers lead to ${s.name}?`, s.cat === 'app' ? `How can I make ${s.name} cheaper?` : `Why is ${s.cat === 'jdk' ? 'this JDK method' : 'this JVM code'} (${s.name}) so hot in my workload?`, `Is ${s.name} hotter during the incidents than in the rest of the recording?`],
 };
+
+/** One-shot console note when falling back to the local catalogue. */
+let _fallbackLogged = false;
+function logFallback(where) {
+  if (_fallbackLogged) return;
+  _fallbackLogged = true;
+  console.info(`[kusma] analyzer questions missing (${where}); using src/chat/questions.js fallback`);
+}
+
+/**
+ * Prefer analyzer-filled questions[persona]; else local MAPPED/generic.
+ * persona: 'developer' | 'expert'. Analyzer uses those keys; local uses dev/expert.
+ */
+export function pickQuestions(source, persona = 'developer', where = 'incident') {
+  const p = persona === 'expert' ? 'expert' : 'developer';
+  const fromApi = source?.questions?.[p] || source?.questions?.[p === 'expert' ? 'expert' : 'developer'];
+  if (Array.isArray(fromApi) && fromApi.length) return fromApi.slice(0, 5);
+  logFallback(where);
+  if (source && source.type) return questionsFor(source, p);
+  return (p === 'expert' ? STARTERS_EXPERT : STARTERS).slice(0, 5);
+}
+
+/** Fill range_questions templates ({from}/{to} as HH:MM:SS UTC) from a brush; else QT.range. */
+export function rangeQuestions(chartBody, persona, aMs, bMs, stats) {
+  const p = persona === 'expert' ? 'expert' : 'developer';
+  const from = clockUtc(aMs); const to = clockUtc(bMs);
+  const tpl = chartBody?.range_questions?.[p];
+  if (Array.isArray(tpl) && tpl.length) {
+    return tpl.map((s) => String(s).replaceAll('{from}', from).replaceAll('{to}', to)
+      .replaceAll('{title}', chartBody.title || '')
+      .replaceAll('{metric}', chartBody.series?.[0]?.metric || '')).slice(0, 5);
+  }
+  logFallback('range');
+  if (stats) return QT.range(stats);
+  return [`What happened between ${from} and ${to}?`, `What caused the peak between ${from} and ${to}?`, `Do any incidents explain ${from}–${to}?`];
+}
+
+const clockUtc = (ms) => new Date(ms).toISOString().slice(11, 19);
+
+/** Expert starters (local fallback); developer list is STARTERS. */
+export const STARTERS_EXPERT = [
+  'Summarise open incidents with scores and overlapping groups.',
+  'What dominates CPU self_pct in this window?',
+  'Is heap.used.bytes trending to the limit?',
+];
+
+/** Starters for the empty composer: analyzer starters when loaded, else local. */
+export function startersFor(persona, catalog) {
+  const p = persona === 'expert' ? 'expert' : 'developer';
+  const fromApi = catalog?.[p];
+  if (Array.isArray(fromApi) && fromApi.length) return fromApi.slice(0, 5);
+  return p === 'expert' ? STARTERS_EXPERT : STARTERS;
+}

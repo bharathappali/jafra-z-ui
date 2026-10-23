@@ -9,7 +9,7 @@ import { refreshLive, renderMain, setPage } from '../app/shell.js';
 import { PRIMARY, PRIMARY_VIEW, planFor } from '../charts/registry.js';
 import { laneGroups, laneHeight, laneOption } from '../charts/lanes.js';
 import { CONF_TIP, cardModel } from '../incidents/model.js';
-import { questionsFor } from '../chat/questions.js';
+import { pickQuestions, rangeQuestions } from '../chat/questions.js';
 import { api } from '../app/core.js';
 import { jvmRef, rangeQ } from '../app/core.js';
 import {
@@ -111,6 +111,10 @@ function incidentCard(x) {
       <div class="ic-q wide wic">${wicHTML(m)}</div>
       <div class="ic-q wide todo"><h5>What to do</h5>${m.todo.length ? `<p>${m.todo.map((t) => esc(t.charAt(0).toUpperCase() + t.slice(1))).join('; ')}.</p>` : `<p class="muted">${d ? 'No suggestion for this type.' : 'Loading…'}</p>`}</div>
     </div>
+    <div class="ic-qs" data-component="SuggestedQuestions" aria-label="Suggested questions">
+      <h5>Ask KUSMA</h5>
+      <div class="ic-qs-list">${pickQuestions(d && d.questions ? d : x, state.persona, 'incident-card').map((q, i) => `<button type="button" class="q" data-ask-q="${esc(x.id)}" data-qi="${i}">${icon('q', 'width:14px;height:14px')}<span>${esc(q)}</span></button>`).join('')}</div>
+    </div>
     <footer><button type="button" class="btn btn-primary sm" data-ask-inc="${esc(x.id)}">${icon('sparkle', 'width:15px;height:15px')}Ask KUSMA</button><button type="button" class="btn sm" data-show-inc="${esc(x.id)}">${icon('chart', 'width:14px;height:14px')}Show on chart</button></footer>
   </article>`;
 }
@@ -134,10 +138,13 @@ export function incidentCardCtx(x) {
     chart: chartRef(ch, PRIMARY_VIEW[ch?.id]), selection: { kind: 'incident', id: x.id, type: x.type, group: x.group, level: x.level, status: x.status, t0: x.t0, t1: x.t1 || null, peak_at: x.peak_at || null, headline: x.headline || null },
     spark: DASH.bodies[x.group]?.series?.[0]?.points };
 }
-function askIncident(id) {
+function askIncident(id, qi = 0) {
   const x = state.incidents.find((z) => z.id === id); if (!x) return;
+  const d = DASH.detail[id];
+  const src = d && d.questions ? d : x;
+  const qs = pickQuestions(src, state.persona, 'incident');
   app.attachCard(incidentCardCtx(x)); app.openChat(true);
-  app.setInput(questionsFor(x, state.persona)[0] || 'What caused this incident?'); $('#input')?.focus();
+  app.setInput(qs[qi] || qs[0] || 'What caused this incident?'); $('#input')?.focus();
 }
 
 /* ---------------- cards (mockup cardShell / otherHTML / endpointsHTML) ---------------- */
@@ -233,8 +240,10 @@ async function onRange(g, a, b) {
     selection: { kind: 'range', from: iso(a), to: iso(b), ...(g ? { values: seriesStats(DASH.bodies[g], a, b) } : { lanes: LANES }),
       vs_normal: st.slice(0, 6).map((r) => ({ group: r.g, metric: r.metric, stat: r.stat, value: r.v, unit: r.unit, normal: r.base, ratio: r.x })), incidents: inc.map((x) => x.id) },
     spark: g ? DASH.bodies[g]?.series?.[0]?.points : null };
+  const body = g ? DASH.bodies[g] : null;
+  const rqs = rangeQuestions(body, state.persona, a, b, null);
   showPop({ id: 'rangePop', ic: 'chart', head: `${rtitle}${rdots}`, label: 'Range summary', sub: "From J/query over the range, compared with this window's normal (J/report).",
-    extra: rstatsHTML(st) + rincHTML(inc), primary: 'Ask KUSMA about this range', primaryText: `What happened between ${clock(a)} and ${clock(b)}?`, card,
+    extra: rstatsHTML(st) + rincHTML(inc), qs: rqs, primary: 'Ask KUSMA about this range', primaryText: rqs[0] || `What happened between ${clock(a)} and ${clock(b)}?`, card,
     x: cr.left + px, y: cr.top + cr.height - 32, foot: 'Attaches this range to KUSMA as context' });
 }
 
@@ -244,11 +253,17 @@ function onMarker(id, g, ev) {
   const card = incidentCardCtx(x); app.attachCard(card);
   const el = document.getElementById(`chart-${g}`); const r = el.getBoundingClientRect();
   showPop({ id: 'anomalyPop', ic: 'alert', col: LV[x.level], head: esc(incTitle(x)), sub: `${clock(x.t0)}–${isOpen(x) || !x.t1 ? 'now' : clock(x.t1)} · ${esc(incFelt(x))}`,
-    qs: questionsFor(x, state.persona), own: false, card, x: ev?.clientX ?? r.left + r.width / 2, y: ev?.clientY ?? r.top + 40,
+    qs: pickQuestions(x, state.persona, 'marker'), own: false, card, x: ev?.clientX ?? r.left + r.width / 2, y: ev?.clientY ?? r.top + 40,
     foot: `Chart attached to KUSMA · <button type="button" class="linkish" data-rinc="${esc(x.id)}">Open incident card</button>` });
 }
 
 /* ---------------- render ---------------- */
+app.onPersonaChange = () => {
+  const w = $('#incWrap');
+  if (w) { const sc = w.querySelector('.inc-list')?.scrollTop || 0; w.innerHTML = incidentsHTML(); const l = w.querySelector('.inc-list'); if (l) l.scrollTop = sc; }
+  app.renderChat?.();
+};
+
 export function renderDashboard(m) {
   if (DASH.jvm !== state.selected) { DASH.jvm = state.selected; DASH.inc = null; DASH.incPinned = false; DASH.detail = {}; DASH.expanded = new Set(); DASH.zoom = null; }
   DASH.zoom = null; DASH.bodies = {};
@@ -290,7 +305,8 @@ export function renderDashboard(m) {
     const x = e.target.closest('[data-collapse]'); if (x) { DASH.expanded.delete(x.dataset.collapse); DASH.charts[x.dataset.collapse]?.dispose(); delete DASH.charts[x.dataset.collapse]; document.getElementById(`card-${x.dataset.collapse}`)?.remove(); return; }
     const w = e.target.closest('[data-wic]'); if (w) { app.openEvidence(w.dataset.wic); return; }
     const i = e.target.closest('[data-inc]'); if (i && !e.target.closest('.anomaly-pop')) { selectIncident(i.dataset.inc); return; }
-    const a = e.target.closest('[data-ask-inc]'); if (a) { askIncident(a.dataset.askInc); return; }
+    const aq = e.target.closest('[data-ask-q]'); if (aq) { askIncident(aq.dataset.askQ, +aq.dataset.qi); return; }
+  const a = e.target.closest('[data-ask-inc]'); if (a) { askIncident(a.dataset.askInc); return; }
     const sc = e.target.closest('[data-show-inc]'); if (sc) { const z = state.incidents.find((q) => q.id === sc.dataset.showInc); if (z) focusSub(z.group); }
   };
 }
