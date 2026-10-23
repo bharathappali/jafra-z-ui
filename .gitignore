@@ -1,1 +1,6 @@
+node_modules/
+dist/
 do_not_commit/
+test-results/
+playwright-report/
+.vite/
