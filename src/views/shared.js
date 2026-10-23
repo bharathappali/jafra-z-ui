@@ -29,7 +29,54 @@ export async function fetchPlan(plan, chart, q = {}) {
     return await c.chart(ref, chart.id, { ...r, view: plan.view });
   } catch (e) { return e.body || { error: 'network', message: e.message, hint: 'Check the analyzer in Settings.', valid: [] }; }
 }
-export function setOpt(c, option) { const { _meta, ...o } = option; c.setOption(o, { notMerge: true }); return _meta || {}; }
+const sid = (o) => (o.series || []).forEach((x, i) => { if (x.id == null) x.id = `s:${x.trend ? 'trend' : x.metric || x.name || i}`; });
+export function setOpt(c, option) { const { _meta, ...o } = option; sid(o); c.setOption(o, { notMerge: true }); return _meta || {}; }
+/**
+ * Live update of an existing chart instance (no dispose, no re-init, no blank frame): merge mode with series matched by id,
+ * so the brushed range, dataZoom, legend toggles and the brush cursor stay as the user left them. Falls back to setOpt when
+ * the chart kind changed (e.g. empty message → series).
+ */
+export function updateOpt(c, option, prevKind) {
+  if (!option._meta || option._meta.kind !== prevKind || option.graphic) return setOpt(c, option);
+  const { _meta, brush, dataZoom, toolbox, ...o } = option; void brush; void dataZoom; void toolbox;
+  if (o.legend) { const { selected, ...lg } = o.legend; void selected; o.legend = lg; }
+  sid(o);
+  (o.series || []).forEach((x) => { x.markLine = x.markLine || { data: [] }; x.markArea = x.markArea || { data: [] }; x.markPoint = x.markPoint || { data: [] }; });
+  c.setOption(o, { replaceMerge: ['series', 'yAxis'], lazyUpdate: false });
+  return _meta || {};
+}
+
+/* ---------------- live refresh: append only the new points, slide the window ---------------- */
+const FULL_EVERY = 12; // one full fetch every ~60 s resyncs trend, summary and questions (they are computed over the whole window)
+/** Merge an incremental J/charts body (from = our last point) into the previous one; drop points older than the window start. null = shapes differ. */
+export function mergeLive(prev, inc, wFrom, cut) {
+  const byM = new Map((inc.series || []).map((s) => [s.metric, s]));
+  if ([...byM.keys()].some((m) => !prev.series.some((s) => s.metric === m))) return null;
+  const series = prev.series.map((s) => {
+    const n = byM.get(s.metric)?.points || []; const first = n.length ? tms(n[0][0]) : Infinity; const pts = s.points || [];
+    const step = pts.length > 1 ? tms(pts[1][0]) - tms(pts[0][0]) : 0; // keep the bucket that contains the window start, like a full fetch
+    return { ...s, points: [...pts.filter((p) => tms(p[0]) > wFrom - step && tms(p[0]) < first), ...n] };
+  });
+  const markers = [...(prev.markers || []).filter((m) => tms(m.t) >= wFrom && tms(m.t) < cut), ...(inc.markers || [])];
+  return { ...prev, series, markers, window: { ...(prev.window || {}), ...(inc.window?.to ? { to: inc.window.to } : {}) } };
+}
+/**
+ * Live fetch for one chart: time series from J/charts are fetched incrementally (?from=<last point>) and merged;
+ * everything else (bars, J/query, slow calls), the first call and every FULL_EVERY-th call are a normal full fetch.
+ * st = per-chart counter object. Never throws (errors come back as the contract error body).
+ */
+export async function fetchLive(plan, chart, prev, st = {}, q = {}) {
+  const wFrom = tms(win().from);
+  st.n = (st.n || 0) + 1;
+  const inc = plan.source === 'chart' && chart.id !== 'slow-calls' && !q.from && prev && !prev.error && prev.series?.length && st.n < FULL_EVERY;
+  const lastT = inc ? Math.max(...prev.series.map((s) => (s.points?.length ? tms(s.points[s.points.length - 1][0]) : -Infinity))) : -Infinity;
+  if (!inc || !Number.isFinite(lastT) || !(lastT >= wFrom)) { st.n = 0; return fetchPlan(plan, chart, q); }
+  const part = await fetchPlan(plan, chart, { from: iso(lastT) });
+  if (part.error) return part;
+  const merged = mergeLive(prev, part, wFrom, lastT);
+  if (merged) return merged;
+  st.n = 0; return fetchPlan(plan, chart, q);
+}
 
 /** API error ({error,message,hint,valid}) in place of a chart (decision 8). */
 export function errHTML(e) {

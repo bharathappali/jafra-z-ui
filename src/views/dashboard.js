@@ -5,7 +5,7 @@
  * Healthy / other (sparklines from J/query?step) · anomaly pop (marker click) · range pop (brush on any chart or lane).
  */
 import { $, $$, app, esc, icon, qs, state, chartTheme } from '../app/core.js';
-import { refreshLive, renderMain, setPage } from '../app/shell.js';
+import { refreshLive, setPage } from '../app/shell.js';
 import { PRIMARY, PRIMARY_VIEW, planFor } from '../charts/registry.js';
 import { laneGroups, laneHeight, laneOption } from '../charts/lanes.js';
 import { CONF_TIP, cardModel } from '../incidents/model.js';
@@ -14,10 +14,10 @@ import { api } from '../app/core.js';
 import { jvmRef, rangeQ } from '../app/core.js';
 import {
   GROUP_COLOR, LV, TIMELINE_CHART, buildOption, chartCtx, chartRef, clock, echarts, errHTML, fetchPlan, fmt, fmtUnit, groupName, hidePops, incFelt, incTitle,
-  isOpen, iso, metricLabel, overlapping, placeholderHTML, rangeStats, rincHTML, rstatsHTML, seriesStats, setOpt, showPop, spark, tms, win,
+  fetchLive, isOpen, iso, metricLabel, overlapping, placeholderHTML, rangeStats, rincHTML, rstatsHTML, seriesStats, setOpt, showPop, spark, tms, updateOpt, win,
 } from './shared.js';
 
-const DASH = { layout: 'grid', inc: null, incPinned: false, expanded: new Set(), charts: {}, bodies: {}, metas: {}, seek: null, zoom: null, top: '', detail: {}, jvm: null };
+const DASH = { layout: 'grid', inc: null, incPinned: false, expanded: new Set(), charts: {}, bodies: {}, metas: {}, seek: null, zoom: null, top: '', topKey: '', hold: {}, detail: {}, jvm: null, busy: {}, live: {} };
 const ST = { critical: 'crit', warning: 'warn', ok: 'ok', unavailable: 'off' };
 const STL = { crit: 'critical', warn: 'warning', ok: 'ok', off: 'off' };
 const SEV = { critical: 2, warning: 1 };
@@ -45,6 +45,29 @@ function kpi(g) {
 function rank() {
   const r = { critical: 3, warning: 2, ok: 1, unavailable: 0 };
   return groups().filter((g) => g.state !== 'unavailable').sort((a, b) => (r[b.state] - r[a.state]) || ((b.open_incidents || []).length - (a.open_incidents || []).length) || ((b.vs_normal || 0) - (a.vs_normal || 0))).map((g) => g.group);
+}
+/** Severity part of the rank only (state, open incidents); vs_normal moves every 5 s window and must not reshuffle the cards. */
+function sevKey(g) { const x = gOf(g); const r = { critical: 3, warning: 2, ok: 1, unavailable: 0 }; return (r[x.state] ?? 1) * 1000 + (x.open_incidents || []).length; }
+/**
+ * Sticky top 4: keep the current cards and their order while the JVM and window stay the same. On live updates a card is
+ * replaced only when an outside group is strictly more severe than the weakest card, or a card's group goes unavailable,
+ * and only once that has held for HOLD windows in a row (the analyzer flaps states for a window or two).
+ */
+const HOLD = 3;
+function stickyTop(live) {
+  const rk = rank(); const j = state.selected;
+  const key = `${j ? `${j.ns}/${j.pod}/${j.container}|${j.start}` : ''}|${state.range?.last || ''}`;
+  if (DASH.topKey !== key || !DASH.top) { DASH.topKey = key; DASH.hold = {}; return rk.slice(0, 4); }
+  const ok = new Set(rk); const hold = DASH.hold || (DASH.hold = {});
+  const want = (id, cond) => { if (!cond) { delete hold[id]; return false; } if (!live) return false; hold[id] = (hold[id] || 0) + 1; if (hold[id] < HOLD) return false; delete hold[id]; return true; };
+  const top = DASH.top.split(',').filter((g) => g && !want(`drop:${g}`, !ok.has(g)));
+  for (const g of rk) { if (top.length >= 4) break; if (!top.includes(g)) top.push(g); }
+  for (const g of rk) {
+    if (top.includes(g)) continue;
+    let wi = -1; top.forEach((t, i) => { if (wi < 0 || sevKey(t) < sevKey(top[wi])) wi = i; });
+    if (want(`up:${g}`, wi >= 0 && sevKey(g) > sevKey(top[wi]))) top[wi] = g;
+  }
+  return top;
 }
 function headTally() { const o = state.incidents.filter(isOpen).length; const n = state.incidents.length; return `<b>${o}</b> open · <b>${n}</b> incident${n === 1 ? '' : 's'} in this window`; }
 function healthHTML() {
@@ -176,13 +199,20 @@ async function renderCardChart(g, refresh) {
   if (!ch) { el.innerHTML = errHTML({ error: 'unknown_chart', message: `No primary chart for ${groupName(g)} in J/charts`, hint: 'The analyzer catalogue has no chart for this group.' }); return; }
   if (ch.availability !== 'available') { el.innerHTML = placeholderHTML(ch, true); el.classList.add('is-ph'); return; }
   const plan = planFor(ch, PRIMARY_VIEW[ch.id] || ch.views?.[0]?.id);
-  const body = await fetchPlan(plan, ch);
+  // Live refresh (refresh !== 'new' on an existing chart): one request at a time per card, only the new points, drawn in place.
+  const live = refresh !== 'new' && DASH.charts[g] && !DASH.charts[g].isDisposed() && DASH.bodies[g] && !DASH.bodies[g].error;
+  if (DASH.busy[g] && refresh !== 'new') return;
+  if (!live) DASH.live[g] = {};
+  DASH.busy[g] = true; let body;
+  try { body = live ? await fetchLive(plan, ch, DASH.bodies[g], DASH.live[g] || (DASH.live[g] = {})) : await fetchPlan(plan, ch); } finally { DASH.busy[g] = false; }
   if (!document.body.contains(el)) return;
+  if (live && body.error) return; // keep the last good chart on a transient error
   DASH.bodies[g] = body;
   if (body.error) { DASH.charts[g]?.dispose(); delete DASH.charts[g]; el.innerHTML = errHTML(body); return; }
   const option = buildOption(plan, body, chartCtx(ch));
   if (DASH.zoom) option.xAxis = { ...option.xAxis, min: DASH.zoom[0], max: DASH.zoom[1] };
   let c = DASH.charts[g];
+  if (live && c === DASH.charts[g] && !c.isDisposed()) { DASH.metas[g] = updateOpt(c, option, DASH.metas[g]?.kind); return; }
   if (!c || refresh === 'new') {
     el.innerHTML = ''; c = echarts.init(el, null, { renderer: 'svg' }); c.group = 'jzdash'; DASH.charts[g] = c;
     c.on('click', (p) => { if (p.componentType === 'markPoint' && p.data?.id) onMarker(p.data.id, g, p.event?.event); });
@@ -264,13 +294,34 @@ app.onPersonaChange = () => {
   app.renderChat?.();
 };
 
+function restOf(top) {
+  const restAll = groups().map((g) => g.group).filter((g) => !top.includes(g));
+  const epOff = !state.chartList.some((c) => c.group === 'endpoint' && c.availability === 'available');
+  return { rest: restAll.filter((g) => !(g === 'endpoint' && epOff) && gOf(g).state !== 'unavailable'), off: restAll.filter((g) => gOf(g).state === 'unavailable' && g !== 'endpoint'), epOff };
+}
+const otherGridHTML = (rest, off, epOff) => `${rest.map(otherHTML).join('')}${off.map(otherHTML).join('')}${epOff ? endpointsOffHTML() : ''}`;
+/** A real severity change moved a group into or out of the top 4: reuse the cards that stay (same chart instance), add or drop only the changed ones. */
+function swapTop(next) {
+  const prev = DASH.top.split(',').filter(Boolean); const grid = $('#topGrid'); const added = [];
+  prev.filter((g) => !next.includes(g)).forEach((old) => { DASH.charts[old]?.dispose(); delete DASH.charts[old]; document.getElementById(`card-${old}`)?.remove(); });
+  next.forEach((g, i) => {
+    let el = prev.includes(g) ? document.getElementById(`card-${g}`) : null;
+    if (!el) {
+      DASH.charts[g]?.dispose(); delete DASH.charts[g]; DASH.expanded.delete(g); document.getElementById(`card-${g}`)?.remove();
+      grid.insertAdjacentHTML('beforeend', cardShell(g, i + 1)); el = document.getElementById(`card-${g}`); added.push(g);
+    } else { const r = el.querySelector('.rk'); if (r) r.textContent = String(i + 1); }
+    grid.appendChild(el);
+  });
+  DASH.top = next.join();
+  added.forEach((g) => renderCardChart(g, 'new'));
+  const { rest, off, epOff } = restOf(next); const og = $('#otherGrid');
+  og.innerHTML = otherGridHTML(rest, off, epOff); const h = og.previousElementSibling?.querySelector('.hint'); if (h) h.textContent = `${rest.length} subsystems · click to expand`;
+  rest.forEach(loadSpark);
+}
 export function renderDashboard(m) {
   if (DASH.jvm !== state.selected) { DASH.jvm = state.selected; DASH.inc = null; DASH.incPinned = false; DASH.detail = {}; DASH.expanded = new Set(); DASH.zoom = null; }
   DASH.zoom = null; DASH.bodies = {};
-  const rk = rank(); const top = rk.slice(0, 4); const restAll = groups().map((g) => g.group).filter((g) => !top.includes(g)); DASH.top = top.join();
-  const epOff = !state.chartList.some((c) => c.group === 'endpoint' && c.availability === 'available');
-  const rest = restAll.filter((g) => !(g === 'endpoint' && epOff) && gOf(g).state !== 'unavailable');
-  const off = restAll.filter((g) => gOf(g).state === 'unavailable' && g !== 'endpoint');
+  const top = stickyTop(); DASH.top = top.join(); const { rest, off, epOff } = restOf(top);
   m.insertAdjacentHTML('beforeend', `
   <section class="dash-head glass" data-component="DashboardHeader">
     <div class="row1"><h2>${icon('chart', 'width:18px;height:18px;color:var(--periwinkle-strong)')}Incident report<span class="dh-tally" id="dhTally" aria-live="polite">${headTally()}</span></h2>
@@ -287,7 +338,7 @@ export function renderDashboard(m) {
     <span class="mk-legend"><span><i style="background:${LV.critical}"></i>critical</span><span><i style="background:${LV.warning}"></i>warning</span><span><i style="background:${LV.info}"></i>info</span></span></div>
   <div class="dash-grid ${DASH.layout}" id="topGrid">${top.map((g, i) => cardShell(g, i + 1)).join('')}</div>
   <div class="sec-head"><h3>Healthy / other</h3><span class="hint">${rest.length} subsystems · click to expand</span></div>
-  <div class="other-grid" id="otherGrid">${rest.map(otherHTML).join('')}${off.map(otherHTML).join('')}${epOff ? endpointsOffHTML() : ''}</div>
+  <div class="other-grid" id="otherGrid">${otherGridHTML(rest, off, epOff)}</div>
   <div class="dash-grid list" id="expGrid"></div>`);
   top.forEach((g) => renderCardChart(g, 'new'));
   [...DASH.expanded].filter((g) => rest.includes(g)).forEach((g) => expandOther(g, false));
@@ -316,11 +367,13 @@ app.renderDashboard = renderDashboard;
 app.liveUpdate = () => {
   if (state.page === 'charts') { app.chartsLive?.(); return; }
   if (!$('#topGrid')) return;
-  if (rank().slice(0, 4).join() !== DASH.top) { const sc = $('#main').scrollTop; renderMain(); $('#main').scrollTop = sc; return; }
+  const nt = stickyTop(true); if (nt.join() !== DASH.top) swapTop(nt);
   $('#health').innerHTML = healthHTML(); $('#dhTally').innerHTML = headTally(); app.syncLive();
   const w = $('#incWrap'); if (w) { const sc = w.querySelector('.inc-list')?.scrollTop || 0; const keep = DASH.inc; w.innerHTML = incidentsHTML(); if (keep !== DASH.inc) delete DASH.detail[`_${DASH.inc}`]; const l = w.querySelector('.inc-list'); if (l) l.scrollTop = sc; }
   const n = laneGroups(state.timeline, state.incidents, state.report, { all: qs.get('lanes') === 'all' });
-  if (DASH.seek && n.join() === LANES.join()) renderSeekOption(); else { DASH.seek?.dispose(); DASH.seek = null; $('#seekChart').innerHTML = ''; renderSeek(); }
+  if (DASH.seek && n.join() === LANES.join()) renderSeekOption();
+  else if (DASH.seek && n.length) { LANES = n; const el = $('#seekChart'); el.style.height = `${laneHeight(LANES.length)}px`; DASH.seek.resize(); renderSeekOption(); }
+  else { DASH.seek?.dispose(); DASH.seek = null; $('#seekChart').innerHTML = ''; renderSeek(); }
   $$('.dcard').forEach((c) => { const g = c.dataset.sub; const t = c.querySelector('h4 .stag'); if (t) { t.dataset.st = stOf(g); t.textContent = STL[stOf(g)]; }
     const k = c.querySelector('.kpi'); if (k) k.textContent = kpi(g);
     const mk = c.querySelector('.top-mk'); const top = worstOf(g); if (mk) mk.innerHTML = top ? `${icon('alert', `width:11px;height:11px;color:${LV[top.level]}`)} ${esc(incFelt(top))}` : '';

@@ -10,11 +10,11 @@ import { QT, pickQuestions, rangeQuestions } from '../chat/questions.js';
 import { openFlameModal } from './evidence.js';
 import {
   GROUP_COLOR, LV, buildOption, chartCtx, chartRef, clock, echarts, errHTML, fetchPlan, fmt, fmtUnit, groupName, hidePops, incFelt, incTitle, isOpen, iso,
-  metricLabel, overlapping, placeholderHTML, rangeStats, rincHTML, rstatsHTML, seriesStats, setOpt, showPop, tms, win,
+  fetchLive, metricLabel, overlapping, placeholderHTML, rangeStats, rincHTML, rstatsHTML, seriesStats, setOpt, showPop, tms, updateOpt, win,
 } from './shared.js';
 import { incidentCardCtx } from './dashboard.js';
 
-const CH = { id: qs.get('chart'), view: {}, range: {}, trend: {}, chart: null, body: null, meta: null, fl: { zoom: null }, flTree: null, seq: 0 };
+const CH = { id: qs.get('chart'), view: {}, range: {}, trend: {}, chart: null, body: null, meta: null, fl: { zoom: null }, flTree: null, seq: 0, busy: false, live: {} };
 app.pageChart = () => CH.chart;
 app.disposePage = () => { if (CH.chart) { CH.chart.dispose(); CH.chart = null; } };
 
@@ -68,7 +68,7 @@ app.renderCharts = renderCharts;
 function renderHead() {
   const c = cur(); const L = list();
   $('#cpSel').innerHTML = `<i class="cx-dot" style="background:${GROUP_COLOR[c.group]}"></i>${icOf(c)}<span class="cp-sel-t">${esc(c.title)}</span>${c.availability !== 'available' ? '<span class="ph-badge">Needs data</span>' : ''}${icon('chev', 'width:14px;height:14px')}`;
-  $('#cpCount').textContent = `${L.indexOf(c) + 1} of ${L.length}`;
+  $('#cpCount').textContent = `${L.findIndex((x) => x.id === c.id) + 1} of ${L.length}`;
 }
 function renderList() {
   const q = ($('#cpQ').value || '').trim().toLowerCase(); const L = list();
@@ -99,7 +99,7 @@ function trendText(tr, c) {
 
 async function drawChart(keepView) {
   const c = cur(); const body = $('#cpBody'); if (!c || !body) return; void keepView;
-  app.disposePage(); hidePops(); const seq = ++CH.seq; CH.body = null; CH.meta = null;
+  app.disposePage(); hidePops(); const seq = ++CH.seq; CH.body = null; CH.meta = null; CH.live = {};
   const v = vOf(c); const views = (c.views || []).length > 1 ? `<div class="seg sm" role="group" aria-label="View">${c.views.map((x) => `<button type="button" data-cpview="${x.id}" aria-pressed="${v === x.id}">${esc(x.title || x.id)}</button>`).join('')}</div>` : '';
   if (c.availability !== 'available') {
     body.innerHTML = `<div class="cp-title"><h2>${esc(c.title)}</h2><p class="cp-take">Not available for this JVM.</p></div>${placeholderHTML(c)}`; return;
@@ -142,7 +142,25 @@ async function drawChart(keepView) {
   });
   if (meta.kind === 'ts') ch.getZr().on('click', (e) => { if (e.target) return; const t = ch.convertFromPixel({ xAxisIndex: 0 }, e.offsetX); const g = ch.convertFromPixel({ gridIndex: 0 }, [e.offsetX, e.offsetY]); if (t == null || !ch.containPixel({ gridIndex: 0 }, [e.offsetX, e.offsetY])) return; void g; pointPop(t, e.event, c); });
 }
-app.chartsLive = () => { if (state.page === 'charts' && cur() && !$('#cxPop:not([hidden])') && CH.range[CH.id] !== 'worst') drawChart(true); };
+/**
+ * Live (5 s) update of the open chart, in place: same ECharts instance, only the new points (shared.fetchLive), no "Loading…",
+ * one request at a time; zoom, brushed range, legend toggles and the pop stay. Flame graphs and the endpoints table are
+ * whole-window aggregates the user is usually zoomed into, so they keep their last render until the chart or view changes.
+ */
+async function liveChart() {
+  const c = cur(); const ch = CH.chart; const host = $('#cpChart');
+  if (!c || !ch || ch.isDisposed() || !host || CH.busy || !CH.body || CH.body.error || !CH.plan || CH.plan.source === 'flame') return;
+  const seq = CH.seq; const plan = CH.plan; const tOn = CH.trend[c.id] !== false;
+  CH.busy = true; let payload;
+  try { payload = await fetchLive(plan, c, CH.body, CH.live, rangeParams(c)); } finally { CH.busy = false; }
+  if (seq !== CH.seq || ch !== CH.chart || ch.isDisposed() || payload.error) return;
+  CH.body = payload;
+  const meta = updateOpt(ch, buildOption(plan, payload, chartCtx(c, { page: true, trend: tOn })), CH.meta?.kind); CH.meta = { ...CH.meta, ...meta };
+  const trendable = TREND_VIEWS[c.id] === vOf(c);
+  const sum = (typeof payload.summary === 'string' ? payload.summary : '') || (payload.value != null ? `${metricLabel(payload.metric)} ${payload.stat || ''} ${fmtUnit(payload.value, payload.unit)}` : '');
+  const tk = $('#cpTake'); if (tk) tk.innerHTML = `${esc(sum)}${trendable && tOn ? ` ${trendText(payload.trend, c)}` : ''}`;
+}
+app.chartsLive = () => { if (state.page === 'charts' && cur() && CH.range[CH.id] !== 'worst') liveChart(); };
 window.addEventListener('resize', () => { CH.chart?.resize(); if (CH.flTree && $('#cpChart.is-flame')) { /* flame redraws itself on resize */ } });
 
 /* ---------------- endpoints-overview table (calls/avg/max/count, % over 500 ms) ---------------- */

@@ -77,9 +77,12 @@ export function laneOption(timeline, incidents, lanes, opts = {}) {
         type: 'custom', name: 'incidents',
         renderItem: (params, api) => {
           const lane = api.value(0); const a = api.coord([api.value(1), lane]); const b = api.coord([api.value(2), lane]); const h = api.size([0, 1])[1] * 0.5; const sel = api.value(4); const op = api.value(5);
-          return { type: 'rect', shape: { x: a[0], y: a[1] - h / 2, width: Math.max(4, b[0] - a[0]), height: h, r: h / 2 }, style: { fill: api.value(3) === 2 ? '#E5484D' : '#E59A12', opacity: op ? 0.95 : 0.5, stroke: sel ? (Th.dark ? '#fff' : '#24255A') : 'rgba(255,255,255,.9)', lineWidth: sel ? 2 : 1 } };
+          // Clamp to the plot area so a lane that starts before the window (or the zoom) is cut at the axis instead of drawing over the subsystem labels.
+          const cs = params.coordSys; const x0 = Math.max(a[0], cs.x); const x1 = Math.min(Math.max(b[0], a[0] + 4), cs.x + cs.width);
+          if (x1 <= x0) return null;
+          return { type: 'rect', shape: { x: x0, y: a[1] - h / 2, width: Math.max(Math.min(4, cs.x + cs.width - x0), x1 - x0), height: h, r: h / 2 }, style: { fill: api.value(3) === 2 ? '#E5484D' : '#E59A12', opacity: op ? 0.95 : 0.5, stroke: sel ? (Th.dark ? '#fff' : '#24255A') : 'rgba(255,255,255,.9)', lineWidth: sel ? 2 : 1 } };
         },
-        encode: { x: [1, 2], y: 0 }, data: items(lanes, timeline, incidents, opts.selectedId, to), z: 3,
+        encode: { x: [1, 2], y: 0 }, data: items(lanes, timeline, incidents, opts.selectedId, to), z: 3, clip: true,
       },
       { type: 'line', name: 'cursor', data: [], markLine: { silent: true, symbol: 'none', data: cursor ? [{ xAxis: cursor }] : [], lineStyle: { color: '#D9619F', width: 1.4 }, label: { show: false } } },
       { type: 'line', name: 'future', data: [], markArea: { silent: true, data: cursor && cursor < to ? [[{ xAxis: cursor }, { xAxis: to }]] : [], itemStyle: { color: Th.dark ? 'rgba(255,255,255,.04)' : 'rgba(159,161,255,.07)' } } },

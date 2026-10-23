@@ -299,14 +299,21 @@ function openJvmStream() {
   });
 }
 /** One SSE window (5 s): timeline, incidents and report again, then the visible charts (decision 10). */
+let liveBusy = false; let liveAgain = false;
 export async function refreshLive() {
+  // One refresh at a time: a window that arrives while the previous refresh is still in flight runs once afterwards.
+  if (liveBusy) { liveAgain = true; return; }
   const j = state.selected; if (!j) return; const ref = jvmRef(j); const c = api.client; const seq = jvmSeq;
+  liveBusy = true;
   try {
     const [report, timeline, incs] = await Promise.all([c.report(ref, rangeQ()), c.timeline(ref, rangeQ()), c.incidents(ref, rangeQ())]);
     if (seq !== jvmSeq) return;
     Object.assign(state, { report, timeline, incidents: incs.incidents || [], lastWindow: Date.now(), pending: false });
     app.liveUpdate?.();
-  } catch { /* keep the last good data; the health check reports the analyzer */ }
+  } catch { /* keep the last good data; the health check reports the analyzer */ } finally {
+    liveBusy = false;
+    if (liveAgain) { liveAgain = false; clearTimeout(refreshTimer); refreshTimer = setTimeout(refreshLive, 250); }
+  }
 }
 
 /* ===================================================================== render all + wiring */
